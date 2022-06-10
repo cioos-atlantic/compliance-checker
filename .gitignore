@@ -111,3 +111,6 @@ activate
 # coverage output
 coverage/
 coverage.xml
+
+# Ignore PyCharm env
+.idea
