@@ -283,6 +283,20 @@ class TestCF1_6(BaseTestCase):
         assert len([r for r in results if r.value[0] < r.value[1]]) == 2
         assert all(r.name == "§2.3 Naming Conventions" for r in results)
 
+        dataset = MockTimeSeries()
+        # test for ignored attributes
+        temp = dataset.createVariable("temperature", "f8", ("time",), fill_value=-9999)
+        temp.standard_name = "sea_water_temperature"
+        temp.units = "degrees_C"
+        temp.DODS = ""
+        temp._ChunkSizes = 5
+        temp._Coordinate = ""
+        temp._Unsigned = 0
+        temp._Encoding = "utf-8"
+        results = self.cf.check_naming_conventions(dataset)
+        scored, out_of, messages = get_results(results)
+        assert scored == out_of
+
     def test_check_names_unique(self):
         """
         2.3 names should not be distinguished purely by case, i.e., if case is disregarded, no two names should be the same.
@@ -612,6 +626,31 @@ class TestCF1_6(BaseTestCase):
         score, out_of, messages = get_results(results)
         self.assertEqual(score, out_of)
 
+        # TEST CONFORMMANCE 7.4 REQUIRED 5/6
+        dataset.variables["climatology_bounds"] = MockVariable(
+            dataset.variables["climatology_bounds"]
+        )
+        clim_bounds = dataset.variables["climatology_bounds"]
+        clim_bounds.standard_name = "forecast_reference_time"
+        clim_bounds.calendar = "proleptic_gregorian"
+        clim_bounds.units = "hours since 1999-02-01"
+        results = self.cf.check_climatological_statistics(dataset)
+        score, out_of, messages = get_results(results)
+        for attr_name in ("calendar", "standard_name", "units"):
+            assert (
+                f"Attribute {attr_name} must have the same value in both variables {clim_bounds.name} and time"
+                in messages
+            )
+        # TEST CONFORMANCE 7.4 REQUIRED 6/6
+        clim_bounds.missing_value = clim_bounds._FillValue = -9999.99
+        results = self.cf.check_climatological_statistics(dataset)
+        score, out_of, messages = get_results(results)
+        assert (
+            f"Climatology variable {clim_bounds.name} may not contain attributes _FillValue or missing_value"
+            in messages
+        )
+
+        # TEST CONFORMANCE 7.4 REQUIRED 3/6
         bad_dim_ds = MockTimeSeries()
         bad_dim_ds.createDimension("clim_bounds", 3)
 
@@ -623,6 +662,20 @@ class TestCF1_6(BaseTestCase):
         assert (
             results[1].msgs[0] == 'Climatology dimension "clim_bounds" '
             "should only contain two elements"
+        )
+        # TEST CONFORMANCE 7.4 REQUIRED 1/6
+        assert (
+            results[0].msgs[0]
+            == "Variable temperature is not detected as a time coordinate "
+            "variable, but has climatology attribute"
+        )
+
+        # TEST CONFORMANCE 7.4 REQUIRED 2/6
+        bad_dim_ds.variables["time"].climatology = 1
+        results = self.cf.check_climatological_statistics(bad_dim_ds)
+        assert (
+            results[0].msgs[0]
+            == "Variable time must have a climatology attribute which is a string"
         )
 
     def test_check_ancillary_variables(self):
